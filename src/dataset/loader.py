@@ -13,6 +13,9 @@ LOG = logging.getLogger(__name__)
 
 
 def define_path(use_jaad=True, use_pie=True, use_titan=True):
+    """
+    Define default path to data
+    """
     all_anns_paths = {'JAAD': {'anns': 'TransNet/DATA/JAAD_DATA.pkl',
                                'split': '/work/vita/datasets/JAAD/split_ids/'},
                       'PIE': {'anns': 'TransNet/DATA/PIE_DATA.pkl'},

@@ -4,6 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.ops import RoIAlign
 from .basenet import *
+from .baselines import *
+from ..utils import *
 
 
 class Res18CropEncoder(nn.Module):
@@ -160,3 +162,52 @@ class DecoderRNN_IMBS(nn.Module):
         x = self.act(x)
 
         return x
+
+def build_encoder_res18(args):
+    """
+    Construct CNN encoder with resnet-18 backbone
+
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if args.encoder_type is 'CC': #use crop-context encoder
+        if args.encoder_pretrained:
+             res18 = ResnetBlocks(torchvision.models.resnet18(pretrained=False))
+             res_backbone = res18.build_backbone(use_pool=True, use_last_block=True, pifpaf_bn=False)
+             res18_cc_cpu = Res18Crop(backbone=res_backbone)
+             res18_cc_gpu = res18_cc_cpu.to(device)
+             checkpoint_path = args.path_to_encoder # change it here to load your fine-tuned encoder
+             _ = load_from_checkpoint(checkpoint_path, res18_cc_gpu, optimizer=None, scheduler=None, verbose=True)
+             # remove fc
+             res_modules = list(res18_cc_gpu.children())[:3]  # delete the last fc layer.
+             res18_gpu = nn.Sequential(*res_modules)
+        else:
+            res18_cpu = torchvision.models.resnet18(pretrained=True)
+            # remove last fc
+            res18_cpu.fc = torch.nn.Identity()
+            res18_gpu = res18_cpu.to(device)
+        encoder_res18 = Res18CropEncoder(resnet=res18_gpu).to(device)
+    else:
+         if args.encoder_pretrained:
+             res18 = ResnetBlocks(torchvision.models.resnet18(pretrained=False))
+             res_till_4 = res18.build_backbone(use_pool=False, use_last_block=False, pifpaf_bn=False)
+             last_block = res18.block5()
+             res18_roi_cpu = Res18RoI(res_till_4, last_block)
+             res18_roi_gpu = res18_roi_cpu.to(device)
+             checkpoint_path = args.path_to_encoder # change it here
+             _ = load_from_checkpoint(checkpoint_path, res18_roi_gpu, optimizer=None, scheduler=None, verbose=True)
+         else:
+             res18 = ResnetBlocks(torchvision.models.resnet18(pretrained=True))
+             res_till_4 = res18.build_backbone(use_pool=False, use_last_block=False, pifpaf_bn=False)
+             last_block = res18.block5()
+             res18_roi_cpu = Res18RoI(res_till_4, last_block)
+             res18_roi_gpu = res18_roi_cpu.to(device)
+         # remove fc
+         res18_roi_gpu.FC = torch.nn.Identity()
+         res18_roi_gpu.dropout = torch.nn.Identity()
+         res18_roi_gpu.act = torch.nn.Identity()
+         # encoder
+         encoder_res18 = Res18RoIEncoder(encoder=res18_roi_gpu).to(device)
+
+    return encoder_res18
+
+
